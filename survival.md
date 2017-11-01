@@ -159,6 +159,13 @@ A monkey appears.  It is curious about you
 
 
 
+## Full List of All Shield Telemetry Spoilers
+
+
+
+
+## Shield Study Utils Api
+
 
 
 

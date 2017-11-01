@@ -1,6 +1,7 @@
 "use strict";
 
 /* global  __SCRIPT_URI_SPEC__  */
+/* global Feature, Services */ // from imports
 /* eslint no-unused-vars: ["error", { "varsIgnorePattern": "(startup|shutdown|install|uninstall)" }]*/
 
 const { utils: Cu } = Components;
@@ -10,12 +11,16 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 const CONFIGPATH = `${__SCRIPT_URI_SPEC__}/../Config.jsm`;
 const { config } = Cu.import(CONFIGPATH, {});
-const studyConfig = config.study;
 
-const STUDYUTILSPATH = `${__SCRIPT_URI_SPEC__}/../${studyConfig.studyUtilsPath}`;
+const STUDYUTILSPATH = `${__SCRIPT_URI_SPEC__}/../${config.studyUtilsPath}`;
 const { studyUtils } = Cu.import(STUDYUTILSPATH, {});
 
 const REASONS = studyUtils.REASONS;
+
+// QA NOTE: Study Specific Modules - package.json:addon.chromeResouce
+const BASE = `template-shield-study-button-study`;
+XPCOMUtils.defineLazyModuleGetter(this, "Feature", `resource://${BASE}/lib/Feature.jsm`);
+
 
 // var log = createLog(studyConfig.study.studyName, config.log.bootstrap.level);  // defined below.
 // log("LOG started!");
@@ -33,64 +38,73 @@ const REASONS = studyUtils.REASONS;
 */
 
 async function startup(addonData, reason) {
-  // addonData: Array [ "id", "version", "installPath", "resourceURI", "instanceID", "webExtension" ]  bootstrap.js:48
+  // `addonData`: Array [ "id", "version", "installPath", "resourceURI", "instanceID", "webExtension" ]  bootstrap.js:48
   console.log("startup", REASONS[reason] || reason);
 
-  // setup the studyUtils so that Telemetry is valid
+  /* Configuration of Study Utils*/
   studyUtils.setup({
     ...config,
     addon: { id: addonData.id, version: addonData.version },
   });
-
   // choose the variation for this particular user, then set it.
-  const variation = (studyConfig.forceVariation ||
+  const variation = getVariationFromPref(config.weightedVariations) ||
     await studyUtils.deterministicVariation(
-      studyConfig.weightedVariations
-    )
-  );
+      config.weightedVariations
+    );
   studyUtils.setVariation(variation);
+  console.log(`studyUtils has config and variation.name: ${variation.name}.  Ready to send telemetry`);
 
 
-  // addon_install:  note first seen, check eligible
+  /** addon_install ONLY:
+    * - note first seen,
+    * - check eligible
+    */
   if ((REASONS[reason]) === "ADDON_INSTALL") {
-    studyUtils.firstSeen(); // sends telemetry "enter"
+    //  telemetry "enter" ONCE
+    studyUtils.firstSeen();
     const eligible = await config.isEligible(); // addon-specific
     if (!eligible) {
-      // uses config.endings.ineligible.url if any,
-      // sends UT for "ineligible"
-      // then uninstalls addon
+      // 1. uses config.endings.ineligible.url if any,
+      // 2. sends UT for "ineligible"
+      // 3. then uninstalls addon
       await studyUtils.endStudy({reason: "ineligible"});
       return;
     }
   }
 
-  // for all 'eligible' users, startup.
+  // startup for eligible users.
+  // 1. sends `install` ping IFF ADDON_INSTALL.
+  // 2. sets activeExperiments in telemetry environment.
   await studyUtils.startup({reason});
+
+  // if you have code to handle expiration / long-timers, it could go here
+  (function fakeTrackExpiration() {})();
+
+  // IFF your study has an embedded webExtension, start it.
+  const { webExtension } = addonData;
+  if (webExtension) {
+    webExtension.startup().then(api => {
+      const {browser} = api;
+      /** spec for messages intended for Shield =>
+        * {shield:true,msg=[info|endStudy|telemetry],data=data}
+        */
+      browser.runtime.onMessage.addListener(studyUtils.respondToWebExtensionMessage);
+      // other browser.runtime.onMessage handlers for your addon, if any
+    });
+  }
 
   // log what the study variation and other info is.
   console.log(`info ${JSON.stringify(studyUtils.info())}`);
 
-
-  // if you have code to handle expiration / long-timers, it could go here
-
-
-  // If your study has an embedded webExtension, start it.
-  const webExtension = addonData.webExtension;
-  if (webExtension) {
-    webExtension.startup().then(api => {
-      const {browser} = api;
-      /* spec for messages intended for Shield =>
-        {shield:true,msg=[info|endStudy|telemetry],data=data}
-      */
-      browser.runtime.onMessage.addListener(studyUtils.respondToWebExtensionMessage);
-
-      // other browser.runtime.onMessage handlers for your addon, if any
-
-    });
-  }
+  // Actually Start up your feature
+  new Feature({variation, studyUtils, reasonName: REASONS[reason]});
 }
 
-
+/** Shutdown needs to distinguish between USER-DISABLE and other
+  * times that `endStudy` is called.
+  *
+  * studyUtils._isEnding means this is a '2nd shutdown'.
+  */
 function shutdown(addonData, reason) {
   console.log("shutdown", REASONS[reason] || reason);
   // FRAGILE: handle uninstalls initiated by USER or by addon
@@ -98,23 +112,17 @@ function shutdown(addonData, reason) {
     console.log("uninstall or disable");
     if (!studyUtils._isEnding) {
       // we are the first 'uninstall' requestor => must be user action.
-      console.log("user requested shutdown");
+      console.log("probably: user requested shutdown");
       studyUtils.endStudy({reason: "user-disable"});
       return;
     }
     // normal shutdown, or 2nd uninstall request
-    console.log("Jsms unloading");
-
 
     // QA NOTE:  unload addon specific modules here.
-
-
 
     // clean up our modules.
     Cu.unload(CONFIGPATH);
     Cu.unload(STUDYUTILSPATH);
-
-
   }
 }
 
@@ -127,9 +135,24 @@ function install(addonData, reason) {
   // handle ADDON_UPGRADE (if needful) here
 }
 
-/** CONSTANTS and other bootstrap.js utilities */
 
-// logging
+
+// helper to let Dev or QA set the variation name
+function getVariationFromPref(weightedVariations) {
+  const key = "shield.test.variation";
+  const name = Services.prefs.getCharPref(key, null);
+  if (name) {
+    const variation = weightedVariations.filter(x => x.name === name)[0];
+    if (!variation) {
+      throw new Error(`about:config => shield.test.variation set to ${name}, but not variation with that name exists`);
+    }
+    return variation;
+  }
+  return name; // undefined
+}
+
+
+// logging, unfinished
 // function createLog(name, levelWord) {
 //  Cu.import("resource://gre/modules/Log.jsm");
 //  var L = Log.repository.getLogger(name);

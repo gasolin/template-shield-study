@@ -2,18 +2,12 @@
 
 `Shield-Study-Template` contains files for for making a **Shield Study Addon**.  Shield Study Addons are **LEGACY ADDONS** for Firefox that include the **SHIELD-STUDIES-ADDON-UTILS**  (`studyUtils.jsm`) file (4.1.x series).
 
-**Shield Study Addons** do these actions:
-
-- implement variations (1+) of a feature
-- report common study and addon lifecycle events to Telemetry
-- report study-specific data about how users react to and interact with a specific variations
-- respond coherently to addon life-cycle events (`install`, `startup`, `disable`, `uninstall`).
-
-
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 **Contents**
 
+- [`npm` commands for `Shield-Study-Template`](#npm-commands-for-shield-study-template)
+- [What is a Shield Study?](#what-is-a-shield-study)
 - [tl;dr - Running the Template Study](#tldr---running-the-template-study)
 - [Folder Contents](#folder-contents)
 - [Parts of A Shield Study (General)](#parts-of-a-shield-study-general)
@@ -32,21 +26,67 @@
 - [Kittens or Puppers, the Critical Study We have all been waiting for](#kittens-or-puppers-the-critical-study-we-have-all-been-waiting-for)
 - [Get More Help](#get-more-help)
 - [Gotchas / FAQ / Ranting](#gotchas--faq--ranting)
+  - [General](#general)
   - [studyUtils](#studyutils)
   - [Legacy Addons](#legacy-addons-1)
   - [s.t.m.o - sql.telemetry.mozilla.org](#stmo---sqltelemetrymozillaorg)
+- [Glossary](#glossary)
+- [OTHER DOCS](#other-docs)
+  - [Configuration](#configuration)
+  - [Lifecycle](#lifecycle)
+  - [Running](#running)
+  - [TODO](#todo)
 - [Links and References](#links-and-references)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
+## `npm` commands for `Shield-Study-Template`
+
+
+```
+    "eslint": "eslint addon --ext jsm --ext js --ext json",
+    "prebuild": "cp node_modules/shield-studies-addon-utils/dist/StudyUtils.jsm addon/",
+    "build": "bash ./bin/xpi.sh",
+    "test": "export XPI=dist/linked-addon.xpi && npm run build && mocha test/functional_tests.js --retry 2",
+    "harness_test": "export XPI=dist/linked-addon.xpi && mocha test/functional_tests.js --retry 2 --reporter json",
+    "firefox": "export XPI=dist/linked-addon.xpi && npm run build && node run-firefox.js",
+    "watch": "onchange 'addon/**' 'package.json' 'template/**' -e addon/install.rdf -e addon/chrome.manifest -e addon/StudyUtils.jsm -- npm run build -- '{{event}} {{changed}} $(date)'",
+    "sign": "echo 'TBD, see: https://bugzilla.mozilla.org/show_bug.cgi?id=1407757'"
+```
+
+## What is a Shield Study?
+
+**Shield Study Addons** do these actions:
+
+- implement variations (1+) of a feature
+- report common study and addon lifecycle events to Telemetry
+- report study-specific data about how users react to and interact with a specific variations
+- respond coherently to addon life-cycle events (`install`, `startup`, `disable`, `uninstall`).
+
+
 ## tl;dr - Running the Template Study
 
-1.  **One time**:  install dependencies, including `shield-studies-addon-utils`
+1.  **One time**:  
 
-   `npm install`
+    * Clone this directory
+    
+    ```
+    git clone template
+    rm -rf {.git,docs}/
+    git init
+    ```
 
-2. Edit files:
+    * install dependencies, including [`mozilla/shield-studies-addon-utils`][mozilla-ssau].
+
+   ```
+   npm install
+   ```
+   
+    * install **Firefox Nightly** for easier development
+
+2. Edit and examine files:
 	
+	- `addon/bootstrap.js`
 	- `addon/Config.jsm`
 	- `package.json`
 	- `addon/lib/*`
@@ -63,18 +103,23 @@
 5.  Restart / re-run after addon changes.
 
 Repeat Steps 2-5 as necessary.
+  
 
-## Folder Contents
+## Direcotry Contents
 
 ```
-├── .circleci/            # setup for .circle ci integration
+├── .circleci/            # setup for Circle-CI integration
+|
 ├── .eslintignore         # 
 ├── .eslintrc.js          # linting rules: mozilla, json
+|
 ├── .git/
 ├── .gitignore
+|
 ├── README.md             # (this file)
 ├── TELEMETRY.md          # Telemetry examples for this addon
 ├── TESTPLAN.md           # Manual QA test plan
+|
 ├── addon                 # Files that will go into the addon
 │   ├── Config.jsm
 │   ├── StudyUtils.jsm    # (copied in during `prebuild`)
@@ -83,8 +128,10 @@ Repeat Steps 2-5 as necessary.
 │   ├── install.rdf       # (derived from templates)
 │   │
 │   ├── lib               # JSM (Firefox modules)
-│   │   └── AddonPrefs.jsm
-│   └── webextension      # modern, embedded webextesion
+│   │   ├── AddonPrefs.jsm
+│   │   └── Feature.jsm
+|   |
+│   └── webextension      # webExtension for Feature and UI
 │       ├── .eslintrc.json
 │       ├── background.js
 │       └── manifest.json
@@ -110,8 +157,8 @@ Repeat Steps 2-5 as necessary.
 └── test                  # Automated tests `npm test` and circle
     ├── Dockerfile
     ├── docker_setup.sh
-    ├── functional_tests.js
-    ├── test-share-study.js
+    ├── functional_tests.js  # Edit these
+    ├── test-share-study.js  # Examples from another study
     ├── test_harness.js
     ├── test_printer.py
     └── utils.js
@@ -122,6 +169,15 @@ Repeat Steps 2-5 as necessary.
 ## Parts of A Shield Study (General)
 
 Note: see [about the #kittens study](#kittens) for architecture of the particulars of the example study.
+
+- Shield-Studies-Addon-Utils
+- Legacy Addon framing code
+- UI / Feature
+    
+    - (optional) Web Extension, embedded
+    - (optional) Various Firefox modules (`.jsm` files)
+
+More details on each follow.
 
 ### Shield-Studies-Addon-Utils (`studyUtils.jsm`)
 
@@ -176,25 +232,27 @@ A **Legacy Addon** consists of:
 * build process to turn these files an `xpi`.
 * signing process using the [Legacy Signing Key][legacy-signing], to enable running in Beta and Release. 
 
-### Building Your Feature, with Variations
+### Your Feature, with Variations
 
 If you have UI:
 
 - embedded web extension - suggested (where possible).  See [link-extensions]
-- jsm files - 
+- jsm files
 
 If you do not have UI
-Your Feature Variation(s)
-- embedded
+
+- jsm files
 
 
 
-## <span id="shield-telemetry">All About Shield Telemetry</span>
+## <span id="shield-telemetry">Shield Telemetry Details</span>
 
-### Shield Study Telemetry Probe Life cycle
+### Shield Study Life-Cycle Telemetry
 
 ```
-    ENTRY     INSTALL        ENDINGS          EXIT
+    time ------------->
+    
+    ENTRY +-> INSTALL +----> ENDINGS +------> EXIT
   
     
     enter +-> install +----> user-disable     exit (all states)
@@ -208,13 +266,22 @@ Your Feature Variation(s)
        |      +------------> expired
        |
        |
-       | (not installed)
+       | (only if not installed)
        +-------------------> inelegible       exit
 
 ```
 
 
 ### Expected ping counts
+
+All **N** enters will eventually have an ending and an exit.
+
+There will be **i** installs ( \\( i \le N \\) ).  
+
+There will be **x** ineligibles ( \\( x \le N \\) ).  
+
+\\( N = i + x \\)
+
 
 ```
      enter  ==  exit  
@@ -254,7 +321,7 @@ none sent | `su.startup(<other reasons>)` |  Never
 **Note**: [Full Schemas - gregglind/shield-study-schemas](https://github.com/gregglind/shield-study-schemas/tree/master/schemas-client)
 
 
-## Send your own probes
+### Send your own probes
 
 Use: `shieldStudy.telemetry(anObjectWithStringValues)`
 
@@ -267,7 +334,31 @@ Example:
 studyUtils.telemetry({evt:"click", button:"share", times:"3"})
 ```
 
-TODO: talk about better endings.
+### Defining Custom Study Endings
+
+Suppose you want some 'early endings', such as:
+
+- positive:  user reached "end of the built UI".
+- negative:  user clicked on "no thanks".
+
+Define in `endings`:
+
+```
+endings: {
+  /** User defined endings */
+  "user-attempted-signup": {
+    "baseUrl": "http://www.example.com/?reason=too-popular",
+    "study_state": "ended-positive",  // neutral is default
+  }
+}
+```
+
+Then:
+
+```
+studyUtils.endStudy("user-attempted-signup");
+```
+
 
 ## Viewing Sent Telemetry Probes
 
@@ -330,7 +421,7 @@ TODO: talk about better endings.
     }
     ```
 
-2.  Use `about:telemetry`, and look for `shield-study` or `shield-study-addon` probes
+2.  Use `about:telemetry`, and look for `shield-study` or `shield-study-addon` probes.
 
     
 
@@ -342,7 +433,7 @@ TODO: talk about better endings.
 
 ## Engineering Side-by-Side (a/b) Feature Variations
 
-Note: this is a gloss / abridgement.  
+Note: this is a gloss / summary.  
 
 
 1.  Your feature has a `startup` or `configuration` method that does different things depending on which variation is chosen.
@@ -358,10 +449,19 @@ Note: this is a gloss / abridgement.
     TheFeature.startup(variation)
     ```
 
-2.  Ensure that your Feature measures all variations, including the Control
+2.  Ensure that your Feature measures every variation, including the Control (no-effect).
 
 
 ## Kittens or Puppers, the Critical Study We have all been waiting for
+
+Style: 
+ 
+- Embedded Web Extension
+- Telmetry on 'button click'
+- has one "end early" condition:  3 or more button presses during a sesson.
+- Goal: test if 'interest rate is higher for kittens or puppies, using a PROXY MEASURE -- "button clicks"
+
+
 
 
 
@@ -371,9 +471,19 @@ Note: this is a gloss / abridgement.
 
 - slack: `#shield`
 
+
+
 ## Gotchas / FAQ / Ranting
 
+### General
+
+I am on Windows.  How can I build?
+
+- (see TODO link to the issue and instructions by JCrawford)
+
 ### studyUtils
+
+
 
 ### Legacy Addons
 
@@ -394,6 +504,159 @@ Debugging `Cu.import`.
 - Athena >> Presto (10-20x faster!)
 - Be careful with single and double-quotes.  
 
+## Glossary
+
+- **Probe**.  A Telemetry measure, or ping.  More broadly:  any measure sent anywhere.
+- **Variation**.  synonyms (branch, arm):  
+   - which *specific* version / configuration a specific client is randomized into.
+   - A JSON object describing the configuration for that specific choice, with keys like `name`.
+
+## OTHER DOCS
+
+- template/README.md 
+
+    - should be edited for YOUR STUDY
+    - move the general npm commands there
+    - links to 'about shield stuides' (in general)
+    - shield-study-addon-utils api
+
+
+## `StudyUtils.jsm` api used in `bootstrap.js`
+
+### Configuration
+
+- `studyUtils.setup`
+
+    Needed to send any telemetry
+
+    Minimal setup:
+    
+    ```
+    {
+        "studyName": "a-study-name",
+        "endings": {},
+        "telemetry": {
+          "send": true, // assumed false. Actually send pings?
+          "removeTestingFlag": false,  // Marks pings as testing, set true for actual release
+        }
+    }
+    ```
+    
+
+- `studyUtils.deterministicVariation(weightedVariations)`
+
+    Suggest a variation.
+
+- `studyUtils.setVariation(anObjectWithNameKey)`
+
+    Actually set the variation.
+    
+
+### Lifecycle
+
+- `studyUtils.firstSeen()`
+
+    - Send the `enter` ping.
+    - Future:  Record first entry.
+
+- `await studyUtils.startup({reason})`
+
+    If 'install', send an install ping.
+
+- `studyUtils.endStudy(endingName)`;
+
+    - Send ending ping
+    - Open a url for that ending if defined
+    - Uninstalls addon
+    
+
+### Running
+
+- `await studyUtils.info()`
+
+    Return configuration info
+    
+- `studyUtils.respondToWebExtensionMessage`
+
+    "Do shield things" (`telemetry`, `info`, `endStudy`)
+    
+- `studyUtils._isEnding`
+
+    Useful flag for knowing if something is already calling an ending, to help prevent race conditions and "double endings"
+
+- `studyUtils.telemetry(stringStringObject)`
+
+    Send a 'study specific' ping to `shield-study-addon` bucket.
+
+
+
+### TODO
+
+Change SSAU api to this:
+
+- suggestVariation
+- setup(includes branch)
+- install() => firstSeen() => ping('enter');
+- 
+- alreadyEnding()
+- endStudy()?  tryEndStudy()?   # first in. 
+
+- info
+- respondToWebExtension / respond?
+- telemetry
+
+
+## FIXES
+
+```
+startup(reason) {
+  const isEligible = some Fn();
+  studyUtils.startup(reason, isEligible)
+  
+  if INSTALL {
+    if !isEliglbe endStudy('ineligible')
+    
+  }
+  startup(reason)
+  
+  ==> utils.startup(reason)
+    if INSTALL, then send install
+    else send nothing
+}
+
+```
+
+```
+install
+- elgible 
+- not eligible
+
+
+specialPing("enter")
+sendEnterPing
+sendInstallPing
+endStudy
+
+endStudy()
+
+telemetry();
+
+```
+
+
+## Template
+
+- see the cloneable template HERE
+- see some other examples HERE
+
+if at template...
+say
+Acutally, read the docs at SSAU there.
+
+
+## Getting QA of your addons
+
+https://mana.mozilla.org/wiki/display/PI/PI+Request
 
 ## Links and References
 
@@ -404,8 +667,12 @@ Debugging `Cu.import`.
 
 [link-webextensions]:  https://developer.mozilla.org/en-US/Add-ons/WebExtensions/Examples
 
+[link-embedded]: https://developer.mozilla.org/en-US/Add-ons/WebExtensions/Embedded_WebExtensions
+
 [stmo-study-states]: https://sql.telemetry.mozilla.org/queries/47604/source#table
 
 [qa-helper-addon-direct]: https://bugzilla.mozilla.org/attachment.cgi?id=8917534
 
 [legacy-signing]:  see TODO link
+
+[mozilla-ssau]: https://github.com/mozilla/shield-studies-addon-utils

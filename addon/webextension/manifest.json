@@ -1,5 +1,5 @@
 {
-  "name": "Some Feature",
+  "name": "WebExtension-FeatureButton",
   "version": "0.2.0",
   "manifest_version": 2,
   "background": {

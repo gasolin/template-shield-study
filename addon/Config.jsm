@@ -11,19 +11,25 @@
 var EXPORTED_SYMBOLS = ["config"];
 
 var config = {
+  // required STUDY key
   "study": {
-    "studyName": "mostImportantExperiment", // no spaces, for all the reasons
-    "forceVariation": {
-      "name": "kittens",
-    }, // optional, use to override/decide
-    "weightedVariations": [
-      {"name": "control",
-        "weight": 1},
-      {"name": "kittens",
-        "weight": 1.5},
-      {"name": "puppers",
-        "weight": 2},  // we want more puppers in our sample
-    ],
+    /** Required for studyUtils.setup():
+      *
+      * - studyName
+      * - endings:
+      *   - map of endingName: configuration
+      * - telemetry
+      *   - boolean send
+      *   - boolean removeTestingFlag
+      *
+      * All other keys are optional.
+      */
+
+    // required keys: studyName, endings, telemetry
+
+    // will be used activeExperiments tagging
+    "studyName": "buttonFeatureExperiment",
+
     /** **endings**
       * - keys indicate the 'endStudy' even that opens these.
       * - urls should be static (data) or external, because they have to
@@ -34,7 +40,7 @@ var config = {
     "endings": {
       /** standard endings */
       "user-disable": {
-        "baseUrl": "data:,You uninstalled",
+        "baseUrl": "http://www.example.com/?reason=user-disable",
       },
       "ineligible": {
         "baseUrl": "http://www.example.com/?reason=ineligible",
@@ -43,14 +49,17 @@ var config = {
         "baseUrl": "http://www.example.com/?reason=expired",
       },
       /** User defined endings */
-      "too-popular": {
-        // data uri made using `datauri-cli`
-        "baseUrl": "data:text/html;base64,PGh0bWw+CiAgPGJvZHk+CiAgICA8cD5Zb3UgYXJlIHVzaW5nIHRoaXMgZmVhdHVyZSA8c3Ryb25nPlNPIE1VQ0g8L3N0cm9uZz4gdGhhdCB3ZSBrbm93IHlvdSBsb3ZlIGl0IQogICAgPC9wPgogICAgPHA+VGhlIEV4cGVyaW1lbnQgaXMgb3ZlciBhbmQgd2UgYXJlIFVOSU5TVEFMTElORwogICAgPC9wPgogIDwvYm9keT4KPC9odG1sPgo=",
+      "used-often": {
+        "baseUrl": "http://www.example.com/?reason=used-often",
         "study_state": "ended-positive",  // neutral is default
       },
       "a-non-url-opening-ending": {
         "study_state": "ended-neutral",
         "baseUrl":  null,
+      },
+      "orientation-leave-study": {
+        "study_state": "ended-negative",
+        "baseUrl": "http://www.example.com/?reason=orientation-leave-study",
       },
     },
     "telemetry": {
@@ -58,14 +67,9 @@ var config = {
       "removeTestingFlag": false,  // Marks pings as testing, set true for actual release
       // TODO "onInvalid": "throw"  // invalid packet for schema?  throw||log
     },
-    // relative to bootstrap.js in the xpi
-    "studyUtilsPath": `./StudyUtils.jsm`,
   },
-  "isEligible": async function() {
-    // get whatever prefs, addons, telemetry, anything!
-    // Cu.import can see 'firefox things', but not package things.
-    return true;
-  },
+
+  // required LOG key
   "log": {
     // Fatal: 70, Error: 60, Warn: 50, Info: 40, Config: 30, Debug: 20, Trace: 10, All: -1,
     "bootstrap":  {
@@ -75,4 +79,32 @@ var config = {
       "level": "Trace",
     },
   },
+
+  // OPTION KEYS
+
+  // a place to put an 'isEligible' function
+  // Will run only during first install attempt
+  "isEligible": async function() {
+    // get whatever prefs, addons, telemetry, anything!
+    // Cu.import can see 'firefox things', but not package things.
+    return true;
+  },
+
+  /* Button study branches and sample weights
+     - test kittens vs. puppies if we can only have one.
+       - downweight lizards.  Lizards is a 'poison' branch, meant to
+         help control for novelty effect
+  */
+  "weightedVariations": [
+    {"name": "kittens",
+      "weight": 1.5},
+    {"name": "puppers",
+      "weight": 1.5},
+    {"name": "lizard",
+      "weight": 1},  // we want more puppers in our sample
+  ],
+
+
+  // Optional: relative to bootstrap.js in the xpi
+  "studyUtilsPath": `./StudyUtils.jsm`,
 };

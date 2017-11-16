@@ -18,8 +18,8 @@ const { studyUtils } = Cu.import(STUDYUTILSPATH, {});
 const REASONS = studyUtils.REASONS;
 
 // QA NOTE: Study Specific Modules - package.json:addon.chromeResouce
-const BASE = `template-shield-study-button-study`;
-XPCOMUtils.defineLazyModuleGetter(this, "Feature", `resource://${BASE}/lib/Feature.jsm`);
+// const BASE = `template-shield-study-button-study`;
+// XPCOMUtils.defineLazyModuleGetter(this, "Feature", `resource://${BASE}/lib/Feature.jsm`);
 
 
 // var log = createLog(studyConfig.study.studyName, config.log.bootstrap.level);  // defined below.
@@ -36,6 +36,24 @@ XPCOMUtils.defineLazyModuleGetter(this, "Feature", `resource://${BASE}/lib/Featu
   XPCOMUtils.defineLazyModuleGetter(this, "Preferences",
     "resource://gre/modules/Preferences.jsm");
 */
+
+function onboardingVariationSetup(variationName) {
+  switch(variationName) {
+  case "noNotification":
+    Services.prefs.setIntPref("browser.onboarding.notification.mute-duration-on-first-session-ms",
+    1209600000);
+    Services.prefs.clearUserPref("browser.onboarding.notification.tour-ids-queue");
+    break;
+  default: // controlGroup
+    fallbackToDefaultOnboarding();
+    break;
+  };
+}
+
+function fallbackToDefaultOnboarding() {
+  Services.prefs.setIntPref("browser.onboarding.notification.mute-duration-on-first-session-ms",
+  300000);
+}
 
 async function startup(addonData, reason) {
   // `addonData`: Array [ "id", "version", "installPath", "resourceURI", "instanceID", "webExtension" ]  bootstrap.js:48
@@ -96,8 +114,10 @@ async function startup(addonData, reason) {
   // log what the study variation and other info is.
   console.log(`info ${JSON.stringify(studyUtils.info())}`);
 
+  onboardingVariationSetup(variation.name);
+
   // Actually Start up your feature
-  new Feature({variation, studyUtils, reasonName: REASONS[reason]});
+  // new Feature({variation, studyUtils, reasonName: REASONS[reason]});
 }
 
 /** Shutdown needs to distinguish between USER-DISABLE and other
@@ -107,6 +127,7 @@ async function startup(addonData, reason) {
   */
 function shutdown(addonData, reason) {
   console.log("shutdown", REASONS[reason] || reason);
+  fallbackToDefaultOnboarding();
   // FRAGILE: handle uninstalls initiated by USER or by addon
   if (reason === REASONS.ADDON_UNINSTALL || reason === REASONS.ADDON_DISABLE) {
     console.log("uninstall or disable");
